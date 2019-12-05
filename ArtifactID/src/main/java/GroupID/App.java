@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 enum NewsDomain {
     POLITICS, SPORTS, ENTERTAINMENT, HEALTH, TECH, ECONOMY
@@ -198,6 +199,81 @@ class TitleTopic implements ITopic {
     }
 }
 
+class ReadTopic implements ITopic {
+
+    @Override
+    public boolean matches(IEvent event) {
+        return event instanceof NewsArticleRead;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof ReadTopic;
+    }
+}
+
+class PublishedTopic implements ITopic {
+
+    @Override
+    public boolean matches(IEvent event) {
+        return event instanceof NewsArticlePublished;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof PublishedTopic;
+    }
+}
+
+class DeletedTopic implements ITopic {
+
+    @Override
+    public boolean matches(IEvent event) {
+        return event instanceof NewsArticleDeleted;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof DeletedTopic;
+    }
+}
+
+class CompositeAllMatchTopic implements ITopic {
+    private List<ITopic> topics;
+
+    public CompositeAllMatchTopic(List<ITopic> topics) {
+        this.topics = topics;
+    }
+
+    @Override
+    public boolean matches(final IEvent event) {
+        return topics.stream().allMatch(new Predicate<ITopic>() {
+            @Override
+            public boolean test(ITopic t) {
+                return t.matches(event);
+            }
+        });
+    }
+}
+
+class CompositeAnyMatchTopic implements ITopic {
+    private List<ITopic> topics;
+
+    public CompositeAnyMatchTopic(List<ITopic> topics) {
+        this.topics = topics;
+    }
+
+    @Override
+    public boolean matches(final IEvent event) {
+        return topics.stream().anyMatch(new Predicate<ITopic>() {
+            @Override
+            public boolean test(ITopic t) {
+                return t.matches(event);
+            }
+        });
+    }
+}
+
 interface ISubscriber {
     void notify(IEvent event);
 }
@@ -256,9 +332,11 @@ class EventChannel {
 
 class NewsEditor implements ISubscriber {
     private final String name;
+    private EventChannel channel;
 
-    public NewsEditor(String name) {
+    public NewsEditor(String name, EventChannel channel) {
         this.name = name;
+        this.channel = channel;
     }
 
     public String getName() {
@@ -269,6 +347,10 @@ class NewsEditor implements ISubscriber {
     public void notify(IEvent event) {
         NewsArticle article = event.getArticle();
         System.out.println("Editor [" + name + "] was notified that [" + article.getTitle() + "] has just been read.");
+    }
+
+    public void publishArticle(NewsArticle article) {
+        channel.dispatch(new NewsArticlePublished(article));
     }
 }
 
