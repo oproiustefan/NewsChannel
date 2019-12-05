@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Predicate;
 
 enum NewsDomain {
     POLITICS, SPORTS, ENTERTAINMENT, HEALTH, TECH, ECONOMY
@@ -199,6 +198,19 @@ class TitleTopic implements ITopic {
     }
 }
 
+class AuthorTopic implements ITopic {
+    private String authorName;
+
+    public AuthorTopic(String authorName) {
+        this.authorName = authorName;
+    }
+
+    @Override
+    public boolean matches(IEvent event) {
+        return this.authorName.equals(event.getArticle().getAuthorName());
+    }
+}
+
 class ReadTopic implements ITopic {
 
     @Override
@@ -247,12 +259,7 @@ class CompositeAllMatchTopic implements ITopic {
 
     @Override
     public boolean matches(final IEvent event) {
-        return topics.stream().allMatch(new Predicate<ITopic>() {
-            @Override
-            public boolean test(ITopic t) {
-                return t.matches(event);
-            }
-        });
+        return topics.stream().allMatch(t -> t.matches(event));
     }
 }
 
@@ -265,32 +272,12 @@ class CompositeAnyMatchTopic implements ITopic {
 
     @Override
     public boolean matches(final IEvent event) {
-        return topics.stream().anyMatch(new Predicate<ITopic>() {
-            @Override
-            public boolean test(ITopic t) {
-                return t.matches(event);
-            }
-        });
+        return topics.stream().anyMatch(t -> t.matches(event));
     }
 }
 
 interface ISubscriber {
     void notify(IEvent event);
-}
-
-class NewsArticlesPersistence implements ISubscriber {
-    private List<NewsArticle> articles;
-    private EventChannel channel;
-
-    public NewsArticlesPersistence(EventChannel channel) {
-        this.channel = channel;
-        this.articles = new ArrayList<NewsArticle>();
-    }
-
-    @Override
-    public void notify(IEvent event) {
-
-    }
 }
 
 class EventChannel {
@@ -324,33 +311,85 @@ class EventChannel {
                 }
             }
             for (ISubscriber subscriber : subscribersToNotify) {
-                subscriber.notify(event);
+                new Thread(() -> subscriber.notify(event)).start();
             }
         }
     }
 }
 
-class NewsEditor implements ISubscriber {
+class NewsArticlesPersistence {
+    private List<NewsArticle> articles;
+    private EventChannel channel;
+    private final Object PERSISTENCE_LOCK = new Object();
+
+    public NewsArticlesPersistence(EventChannel channel) {
+        this.channel = channel;
+        this.articles = new ArrayList<NewsArticle>();
+        ISubscriber onPublishedHandler = new ISubscriber() {
+            @Override
+            public void notify(IEvent event) {
+                synchronized (PERSISTENCE_LOCK) {
+                    NewsArticle article = event.getArticle();
+                    System.out.println("Persistence was notified that [" + article.getTitle() + "] was published.");
+                    articles.add(article);
+                }
+            }
+        };
+        ISubscriber onDeletedHandler = new ISubscriber() {
+            @Override
+            public void notify(IEvent event) {
+                synchronized (PERSISTENCE_LOCK) {
+                    NewsArticle article = event.getArticle();
+                    System.out.println("Persistence was notified that [" + article.getTitle() + "] was removed.");
+                    if (articles.contains(article)) {
+                        articles.remove(article);
+                    }
+                }
+            }
+        };
+
+        this.channel.register(new PublishedTopic(), onPublishedHandler);
+        this.channel.register(new DeletedTopic(), onDeletedHandler);
+    }
+}
+
+class NewsEditor {
     private final String name;
     private EventChannel channel;
 
     public NewsEditor(String name, EventChannel channel) {
         this.name = name;
         this.channel = channel;
+        ITopic thisAuthorTopic = new AuthorTopic(name);
+        ITopic readTopic = new ReadTopic();
+        ITopic editorTopic = new CompositeAllMatchTopic(List.of(thisAuthorTopic, readTopic));
+        this.channel.register(editorTopic, new ISubscriber() {
+            @Override
+            public void notify(IEvent event) {
+                System.out.println("Editor [" + name + "] has been notified that article ["
+                        + event.getArticle().getTitle() + "] was read.");
+            }
+        });
     }
 
     public String getName() {
         return name;
     }
 
-    @Override
-    public void notify(IEvent event) {
-        NewsArticle article = event.getArticle();
-        System.out.println("Editor [" + name + "] was notified that [" + article.getTitle() + "] has just been read.");
-    }
-
     public void publishArticle(NewsArticle article) {
         channel.dispatch(new NewsArticlePublished(article));
+    }
+}
+
+class Reader {
+    private EventChannel channel;
+
+    public Reader(EventChannel channel) {
+        this.channel = channel;
+    }
+
+    public void register(ITopic topic, ISubscriber handler) {
+        this.channel.register(topic, handler);
     }
 }
 
