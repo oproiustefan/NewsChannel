@@ -1,6 +1,5 @@
 package pcbe;
 
-import java.io.IOException;
 import java.util.List;
 
 import pcbe.core.actors.*;
